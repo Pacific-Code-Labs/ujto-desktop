@@ -115,3 +115,17 @@ def test_deep_link_opens_new_with_url():
     assert url == f"{config.APP_URL}/en/new?client=desktop&url=https%3A%2F%2Fyoutu.be%2Fabc"
     assert start_url(["ujto"]) == f"{config.APP_URL}/?client=desktop"
     assert start_url(["ujto", "ujto://new?url=javascript:alert(1)"]) == f"{config.APP_URL}/?client=desktop"
+
+
+def test_store_edition_has_no_downloads(monkeypatch):
+    monkeypatch.setattr(config, "DOWNLOADS_ENABLED", False)
+    monkeypatch.setattr(config, "EDITION", "store")
+    bridge, _ = make_bridge()
+    assert bridge.capabilities() == {"edition": "store", "download": False}
+    assert bridge.probe("https://youtu.be/x") == {"ok": False, "error": "NOT_AVAILABLE"}
+    assert bridge.download_and_upload("job", "https://youtu.be/x", UPLOAD) == {"ok": False, "error": "NOT_AVAILABLE"}
+
+
+def test_full_edition_capabilities():
+    bridge, _ = make_bridge()
+    assert bridge.capabilities() == {"edition": config.EDITION, "download": config.DOWNLOADS_ENABLED}

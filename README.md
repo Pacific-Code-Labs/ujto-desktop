@@ -53,6 +53,43 @@ Windows x64 and Linux x64 and publishes a release with **stable asset names**, s
 
 Every Monday CI checks PyPI for a new yt-dlp (YouTube breaks old versions) and opens a PR.
 
+## Microsoft Store
+
+Two editions, chosen at build time with `UJTO_EDITION` (baked into the app as `edition.txt`):
+
+| Edition | What it has | Where it ships |
+|---|---|---|
+| `full` (default) | Dashboard + on-device link downloads (yt-dlp, ffmpeg, Deno) + GitHub update check | GitHub Releases, website |
+| `store` | Dashboard only (uploads, history, notifications, `ujto://` links); ~33 MB | Microsoft Store |
+
+Store policy rejects apps that download content from services like YouTube against their terms,
+so submit the **store** edition first; the full one is built too if you want to try it. In the
+store edition the bridge reports `capabilities().download = false` and the dashboard's Link tab
+falls back to the server.
+
+Every Windows CI build produces both packages in the `ujto-msstore` artifact
+(`scripts/build-msix.ps1`, `packaging/windows/msix/AppxManifest.xml`):
+`Ujto-windows-x64-store.msix` and `Ujto-windows-x64.msix`. They are unsigned — the Store signs them —
+and are not attached to GitHub releases.
+
+**First submission (manual):**
+1. [Partner Center](https://partner.microsoft.com/dashboard) → Apps and games → New product → MSIX
+   or PWA app → reserve the name (e.g. "Ujtö̀").
+2. Product → **Product identity**: copy *Package/Identity/Name*, *Package/Identity/Publisher* (`CN=…`)
+   and *Package/Properties/PublisherDisplayName* into repository **variables**
+   `MSSTORE_IDENTITY_NAME`, `MSSTORE_PUBLISHER`, `MSSTORE_PUBLISHER_DISPLAY_NAME`.
+3. Tag a release (or run the workflow manually); download the `ujto-msstore` artifact.
+4. New submission → Packages → upload the `.msix`; fill in pricing (free), properties, age rating,
+   store listing (EN/ES; screenshots of the dashboard) and a privacy policy URL; submit.
+   Mention in the notes that the app needs a Ujtö̀ account (give certification a test login).
+
+**Later submissions (optional automation):** create an Azure AD app linked to Partner Center
+(Account settings → User management → Azure AD applications, role *Manager*), then set variables
+`MSSTORE_PUBLISH=true`, `MSSTORE_APP_ID` (Store ID, e.g. `9N…`), `MSSTORE_EDITION` (`store`/`full`)
+and secrets `PARTNER_CENTER_TENANT_ID`, `PARTNER_CENTER_SELLER_ID`, `PARTNER_CENTER_CLIENT_ID`,
+`PARTNER_CENTER_CLIENT_SECRET`. Each `v*` tag then creates a **draft** submission with the new
+package (`msstore publish --noCommit`); review and submit it in Partner Center.
+
 ## Signing (off until configured)
 
 The workflow signs only when repository **variables** turn it on (Settings → Secrets and

@@ -10,9 +10,20 @@ os.chdir(ROOT)
 sys.path.insert(0, ROOT)
 from ujto_desktop import __version__  # noqa: E402
 
-datas = [(os.path.join(ROOT, "assets"), "assets")] + collect_data_files("imageio_ffmpeg")
-if os.path.isdir("vendor"):
-    datas.append((os.path.join(ROOT, "vendor"), "vendor"))  # bundled deno (JS runtime yt-dlp needs for YouTube)
+# UJTO_EDITION=store builds the Microsoft Store edition: no downloader (yt-dlp, ffmpeg, Deno).
+EDITION = os.getenv("UJTO_EDITION", "full")
+os.makedirs(os.path.join(ROOT, "build"), exist_ok=True)
+with open(os.path.join(ROOT, "build", "edition.txt"), "w") as fh:
+    fh.write(EDITION)
+
+datas = [(os.path.join(ROOT, "assets"), "assets"), (os.path.join(ROOT, "build", "edition.txt"), ".")]
+excludes = ["tkinter"]
+if EDITION == "store":
+    excludes += ["yt_dlp", "yt_dlp_ejs", "imageio_ffmpeg", "requests_toolbelt"]
+else:
+    datas += collect_data_files("imageio_ffmpeg")
+    if os.path.isdir("vendor"):
+        datas.append((os.path.join(ROOT, "vendor"), "vendor"))  # bundled deno (JS runtime yt-dlp needs for YouTube)
 
 icon = {"darwin": "build/icon.icns", "win32": "build/icon.ico"}.get(sys.platform)
 icon = os.path.join(ROOT, icon) if icon else None
@@ -22,7 +33,7 @@ a = Analysis(
     pathex=[ROOT],
     datas=datas,
     hiddenimports=collect_submodules("ujto_desktop"),
-    excludes=["tkinter"],
+    excludes=excludes,
 )
 pyz = PYZ(a.pure)
 exe = EXE(

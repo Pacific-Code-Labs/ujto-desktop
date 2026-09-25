@@ -14,6 +14,16 @@ RELEASES_PAGE = "https://github.com/Pacific-Code-Labs/ujto-desktop/releases/late
 URL_SCHEME = "ujto"
 VERSION = __version__
 
+def _edition() -> str:
+    """ "full" (GitHub releases: on-device link downloads + update check) or "store" (Microsoft
+    Store: no downloader, the Store updates the app). Baked in at build time as edition.txt."""
+    env = os.getenv("UJTO_EDITION")
+    if env:
+        return env
+    marker = resource_dir() / "edition.txt"
+    return marker.read_text().strip() if marker.exists() else "full"
+
+
 # Largest file the bridge will upload; the presigned POST enforces the user's plan limit anyway.
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -41,3 +51,8 @@ def bundled_deno() -> str | None:
     name = "deno.exe" if sys.platform == "win32" else "deno"
     candidate = resource_dir() / "vendor" / name
     return str(candidate) if candidate.exists() else None
+
+
+EDITION = _edition()
+DOWNLOADS_ENABLED = EDITION != "store"
+UPDATE_CHECK_ENABLED = EDITION != "store"

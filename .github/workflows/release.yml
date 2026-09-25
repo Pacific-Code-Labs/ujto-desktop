@@ -11,6 +11,14 @@ name: Build and release
 #              secrets AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET; vars AZURE_SIGNING_ENDPOINT
 #              (e.g. https://eus.codesigning.azure.net/), AZURE_SIGNING_ACCOUNT, AZURE_CERT_PROFILE
 #   Linux    no signing needed.
+#
+# Microsoft Store: every Windows build also produces two MSIX packages (unsigned: the Store signs):
+#   Ujto-windows-x64.msix        full edition (on-device link downloads)
+#   Ujto-windows-x64-store.msix  store edition (no downloader; Store policy friendly)
+# Identity from Partner Center → vars MSSTORE_IDENTITY_NAME, MSSTORE_PUBLISHER, MSSTORE_PUBLISHER_DISPLAY_NAME.
+# Optional automatic draft submission on tags: vars MSSTORE_PUBLISH="true", MSSTORE_APP_ID,
+# MSSTORE_EDITION ("store" default | "full"); secrets PARTNER_CENTER_TENANT_ID, PARTNER_CENTER_SELLER_ID,
+# PARTNER_CENTER_CLIENT_ID, PARTNER_CENTER_CLIENT_SECRET.
 
 on:
   push:
@@ -166,6 +174,28 @@ jobs:
         shell: pwsh
         run: Move-Item -Force dist\signed\Ujto-windows-x64.exe dist\Ujto-windows-x64.exe
 
+      - name: MSIX packages for the Microsoft Store (full + store editions)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
+          MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
+          MSSTORE_PUBLISHER_DISPLAY_NAME: ${{ vars.MSSTORE_PUBLISHER_DISPLAY_NAME }}
+        run: |
+          pwsh scripts/build-msix.ps1 -Edition full
+          # Rebuild without the downloader for the store edition (overwrites dist\Ujto).
+          $env:UJTO_EDITION = "store"
+          python -m PyInstaller --noconfirm --clean packaging/ujto.spec
+          pwsh scripts/build-msix.ps1 -Edition store
+
+      - name: Upload MSIX packages
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ujto-msstore
+          path: dist/*.msix
+          if-no-files-found: error
+
       - uses: actions/upload-artifact@v4
         with:
           name: ujto-${{ matrix.name }}
@@ -184,6 +214,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+          # Platform installers only (ujto-mac-arm64, ujto-windows-x64, …); the MSIX packages
+          # (ujto-msstore) are for the Microsoft Store, not for direct download.
+          pattern: ujto-*-*
           merge-multiple: true
       # Stable asset names, so releases/latest/download/<name> links never change.
       - name: Publish release
@@ -193,6 +226,30 @@ jobs:
           ls -la artifacts
           gh release create "${GITHUB_REF_NAME}" artifacts/* -R "${GITHUB_REPOSITORY}" \
             --title "Ujtö̀ ${GITHUB_REF_NAME}" --generate-notes
+
+  msstore:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && vars.MSSTORE_PUBLISH == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ujto-msstore
+          path: msstore
+      - name: Keep the chosen edition only
+        shell: pwsh
+        run: |
+          $edition = if ("${{ vars.MSSTORE_EDITION }}") { "${{ vars.MSSTORE_EDITION }}" } else { "store" }
+          $keep = if ($edition -eq "store") { "Ujto-windows-x64-store.msix" } else { "Ujto-windows-x64.msix" }
+          New-Item -ItemType Directory -Force upload | Out-Null
+          Move-Item "msstore\$keep" upload\
+          Get-ChildItem upload
+      - uses: microsoft/microsoft-store-apppublisher@v1.4
+      - name: Draft submission in Partner Center (review and submit there)
+        run: |
+          msstore reconfigure --tenantId ${{ secrets.PARTNER_CENTER_TENANT_ID }} --sellerId ${{ secrets.PARTNER_CENTER_SELLER_ID }} --clientId ${{ secrets.PARTNER_CENTER_CLIENT_ID }} --clientSecret ${{ secrets.PARTNER_CENTER_CLIENT_SECRET }}
+          msstore publish upload --inputDirectory upload --appId ${{ vars.MSSTORE_APP_ID }} --noCommit
 
   ytdlp-watch:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

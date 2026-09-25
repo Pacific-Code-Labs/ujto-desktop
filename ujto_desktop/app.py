@@ -76,7 +76,9 @@ def main(argv: list[str] | None = None) -> None:
     window.events.loaded += lambda: _keep_on_dashboard(window)
 
     def on_start() -> None:
-        threading.Thread(target=_check_for_update, args=(window,), daemon=True).start()
+        # Store builds are updated by the Microsoft Store; GitHub builds check their releases.
+        if config.UPDATE_CHECK_ENABLED:
+            threading.Thread(target=_check_for_update, args=(window,), daemon=True).start()
 
     # private_mode=False + a storage path keeps the sign-in between launches.
     webview.start(on_start, private_mode=False, storage_path=str(config.data_dir()), icon=str(config.resource_dir() / "assets" / "icon.png"))

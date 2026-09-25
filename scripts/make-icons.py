@@ -13,6 +13,16 @@ build = root / "build"
 build.mkdir(exist_ok=True)
 src.save(build / "icon.ico", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
 
+# MSIX / Microsoft Store tiles (square logos + a wide tile on the brand background).
+msix = build / "msix-assets"
+msix.mkdir(exist_ok=True)
+for name, size in {"StoreLogo.png": 50, "Square44x44Logo.png": 44, "Square150x150Logo.png": 150, "Square310x310Logo.png": 310}.items():
+    src.resize((size, size), Image.LANCZOS).save(msix / name)
+wide = Image.new("RGBA", (310, 150), src.getpixel((5, 5)))  # the icon's own background, so no seam
+logo = src.resize((130, 130), Image.LANCZOS)
+wide.paste(logo, ((310 - 130) // 2, 10), logo)
+wide.save(msix / "Wide310x150Logo.png")
+
 if sys.platform == "darwin":
     iconset = build / "icon.iconset"
     shutil.rmtree(iconset, ignore_errors=True)

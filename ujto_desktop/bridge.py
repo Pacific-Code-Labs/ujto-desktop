@@ -74,10 +74,16 @@ class Bridge:
     def version(self) -> str:
         return config.VERSION
 
+    def capabilities(self) -> dict:
+        """What this build can do; the web app hides on-device downloads when they're off."""
+        return {"edition": config.EDITION, "download": config.DOWNLOADS_ENABLED}
+
     def probe(self, url: str) -> dict:
         """Title and duration of a link, without downloading it."""
         try:
             self._ensure_trusted()
+            if not config.DOWNLOADS_ENABLED:
+                return {"ok": False, "error": "NOT_AVAILABLE"}
             if not _is_public_http_url(url):
                 return {"ok": False, "error": "INVALID_URL"}
             import yt_dlp
@@ -94,6 +100,8 @@ class Bridge:
     def download_and_upload(self, job_id: str, url: str, upload: dict) -> dict:
         """Download the audio of `url`, POST it to the presigned S3 form, delete the local file."""
         self._ensure_trusted()
+        if not config.DOWNLOADS_ENABLED:
+            return {"ok": False, "error": "NOT_AVAILABLE"}
         if not _is_public_http_url(url):
             return {"ok": False, "error": "INVALID_URL"}
         if not (isinstance(upload, dict) and _is_public_http_url(upload.get("url", "")) and isinstance(upload.get("fields"), dict)):
