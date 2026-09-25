@@ -1,0 +1,11 @@
+# ujto-desktop (fe/desktop)
+
+- Public repo. No secrets: the app only loads the public dashboard URL and uses presigned uploads
+  the web app obtains with the user's own session.
+- The UI is the deployed dashboard (fe/app); do NOT build UI here. Desktop-only abilities go in
+  `ujto_desktop/bridge.py` and are called from fe/app `services/desktop.service.ts` — change both
+  together (method names, arguments, the `window.ujtoDesktop.onProgress` contract).
+- Keep the origin check in `Bridge._ensure_trusted` and temp cleanup in `finally`.
+- Asset names in `.github/workflows/release.yml`/`scripts/build.sh` are referenced by the landing and
+  dashboard content (`download.json`, `desktop.json`): never rename them.
+- Verify: `.venv/bin/python -m pytest -q tests`; `bash scripts/build.sh` on macOS for a local .app.

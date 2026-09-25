@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Ujtö̀
+GenericName=Video transcription
+Comment=From video to word — transcribe videos and audio
+Exec=ujto %u
+Icon=ujto
+Terminal=false
+Categories=AudioVideo;Utility;
+MimeType=x-scheme-handler/ujto;
+StartupWMClass=Ujto
