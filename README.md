@@ -53,9 +53,30 @@ Windows x64 and Linux x64 and publishes a release with **stable asset names**, s
 
 Every Monday CI checks PyPI for a new yt-dlp (YouTube breaks old versions) and opens a PR.
 
-**Signing:** builds are unsigned until an Apple Developer ID (notarization) and a Windows
-code-signing certificate are added; until then macOS Gatekeeper and Windows SmartScreen warn
-on first launch. After a release, set `"status": "available"` in the landing's
-`src/content/download.json` and the dashboard's `src/content/desktop.json` (ujto-admin).
+## Signing (off until configured)
+
+The workflow signs only when repository **variables** turn it on (Settings → Secrets and
+variables → Actions); otherwise it builds unsigned installers, as today.
+
+**macOS** — Apple Developer Program (about US$99/year). Create a *Developer ID Application*
+certificate, export it as `.p12`, and an App Store Connect API key for notarization.
+- Variable `MACOS_SIGNING=true`
+- Secrets `MACOS_CERT_P12` (`base64 -i cert.p12`), `MACOS_CERT_PASSWORD`, and either
+  `APPLE_API_KEY_P8` (the .p8 contents), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`
+  or `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`.
+- `scripts/sign-macos.sh` signs every binary inside the app (hardened runtime,
+  `packaging/macos/entitlements.plist`), then the `.dmg`, notarizes and staples it.
+
+**Windows** — pick one with the variable `WINDOWS_SIGNING`:
+- `signpath` — **free for open source** through the [SignPath Foundation](https://signpath.org/)
+  (requires an OSI license in this repo and their approval). Secret `SIGNPATH_API_TOKEN`; variables
+  `SIGNPATH_ORGANIZATION_ID`, `SIGNPATH_PROJECT_SLUG`, `SIGNPATH_SIGNING_POLICY_SLUG`. Signs the installer.
+- `azure` — Azure Artifact Signing (formerly Trusted Signing, paid monthly; identity eligibility
+  applies). Secrets `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`; variables
+  `AZURE_SIGNING_ENDPOINT`, `AZURE_SIGNING_ACCOUNT`, `AZURE_CERT_PROFILE`. Signs `Ujto.exe` and the installer.
+
+Unsigned builds work, but macOS Gatekeeper and Windows SmartScreen warn on first launch. After a
+release, set `"status": "available"` in the landing's `src/content/download.json` and the
+dashboard's `src/content/desktop.json` (ujto-admin).
 
 Only process media you have the right to use.

@@ -16,7 +16,9 @@ case "$(uname -s)" in
   Darwin)
     ARCH="$(uname -m)"; [[ "$ARCH" == "x86_64" ]] && ARCH=x64
     rm -f "dist/Ujto-mac-${ARCH}.dmg"
+    bash scripts/sign-macos.sh app dist/Ujto.app          # no-op without MACOS_SIGN_IDENTITY
     hdiutil create -volname "Ujtö̀" -srcfolder dist/Ujto.app -ov -format UDZO "dist/Ujto-mac-${ARCH}.dmg"
+    bash scripts/sign-macos.sh dmg "dist/Ujto-mac-${ARCH}.dmg"
     ;;
   Linux)
     bash packaging/linux/build-appimage.sh "$VERSION"

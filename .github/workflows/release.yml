@@ -1,5 +1,17 @@
 name: Build and release
 
+# Signing is off until configured (repository Settings → Secrets and variables → Actions):
+#   macOS    vars.MACOS_SIGNING = "true" + secrets MACOS_CERT_P12 (base64 .p12), MACOS_CERT_PASSWORD,
+#            and notarization: APPLE_API_KEY_P8 (key contents), APPLE_API_KEY_ID, APPLE_API_ISSUER
+#            — or APPLE_ID, APPLE_APP_PASSWORD, APPLE_TEAM_ID.
+#   Windows  vars.WINDOWS_SIGNING = "signpath" (free for open source, SignPath Foundation):
+#              secrets SIGNPATH_API_TOKEN; vars SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG,
+#              SIGNPATH_SIGNING_POLICY_SLUG (e.g. release-signing)
+#            or "azure" (Azure Artifact Signing, paid):
+#              secrets AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET; vars AZURE_SIGNING_ENDPOINT
+#              (e.g. https://eus.codesigning.azure.net/), AZURE_SIGNING_ACCOUNT, AZURE_CERT_PROFILE
+#   Linux    no signing needed.
+
 on:
   push:
     branches: [main]
@@ -56,8 +68,54 @@ jobs:
           curl -fsSL -o /usr/local/bin/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           sudo chmod +x /usr/local/bin/appimagetool
 
+      - name: macOS signing keychain
+        if: runner.os == 'macOS' && vars.MACOS_SIGNING == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')
+          [ -n "$IDENTITY" ] || { echo "No Developer ID Application identity in MACOS_CERT_P12" >&2; exit 1; }
+          echo "MACOS_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            echo "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+            echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+          fi
+
       - name: Build app and installer
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: PYTHON=python bash scripts/build.sh
+
+      # Azure signs the app's own .exe before it goes into the installer, then the installer.
+      - name: Sign Ujto.exe (Azure Artifact Signing)
+        if: runner.os == 'Windows' && vars.WINDOWS_SIGNING == 'azure'
+        uses: Azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERT_PROFILE }}
+          files: ${{ github.workspace }}\dist\Ujto\Ujto.exe
+          file-digest: SHA256
+          timestamp-digest: SHA256
 
       - name: Windows installer (Inno Setup)
         if: runner.os == 'Windows'
@@ -65,6 +123,48 @@ jobs:
         run: |
           $env:UJTO_VERSION = python -c "import ujto_desktop; print(ujto_desktop.__version__)"
           iscc packaging\windows\ujto.iss
+
+      - name: Sign installer (Azure Artifact Signing)
+        if: runner.os == 'Windows' && vars.WINDOWS_SIGNING == 'azure'
+        uses: Azure/artifact-signing-action@v2
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERT_PROFILE }}
+          files: ${{ github.workspace }}\dist\Ujto-windows-x64.exe
+          file-digest: SHA256
+          timestamp-digest: SHA256
+
+      # SignPath: upload the unsigned installer, SignPath signs it (its policy can also sign
+      # the files inside), and the signed file replaces the unsigned one.
+      - name: Upload unsigned installer for SignPath
+        id: unsigned
+        if: runner.os == 'Windows' && vars.WINDOWS_SIGNING == 'signpath'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-installer
+          path: dist/Ujto-windows-x64.exe
+          if-no-files-found: error
+
+      - name: Sign installer (SignPath)
+        if: runner.os == 'Windows' && vars.WINDOWS_SIGNING == 'signpath'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/signed
+
+      - name: Use the signed installer
+        if: runner.os == 'Windows' && vars.WINDOWS_SIGNING == 'signpath'
+        shell: pwsh
+        run: Move-Item -Force dist\signed\Ujto-windows-x64.exe dist\Ujto-windows-x64.exe
 
       - uses: actions/upload-artifact@v4
         with:
