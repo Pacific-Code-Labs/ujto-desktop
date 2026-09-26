@@ -32,6 +32,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  id-token: write # downloads job: keyless OIDC to publish installers to media.<domain>
 
 jobs:
   test:
@@ -226,6 +227,50 @@ jobs:
           ls -la artifacts
           gh release create "${GITHUB_REF_NAME}" artifacts/* -R "${GITHUB_REPOSITORY}" \
             --title "Ujtö̀ ${GITHUB_REF_NAME}" --generate-notes
+
+  # Direct downloads for the sites: installers on the public media CDN, both per version and
+  # under a stable "latest" path (https://media.ujto.jcampos.dev/downloads/desktop/latest/<asset>).
+  # The role (secret AWS_DOWNLOADS_ROLE_ARN, ujto-public-be deploy-desktop-downloads-role.sh) only
+  # works for release tags and may only write downloads/desktop/*; bucket and distribution are
+  # read from SSM, so no infrastructure ids live in this public repo.
+  downloads:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: ujto-*-*
+          merge-multiple: true
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DOWNLOADS_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Publish installers to the media CDN
+        run: |
+          set -euo pipefail
+          BUCKET=$(aws ssm get-parameter --name /ujto/prod/public-api/storage/media-bucket --query Parameter.Value --output text)
+          DISTRIBUTION=$(aws ssm get-parameter --name /ujto/prod/public-api/storage/media-distribution-id --query Parameter.Value --output text)
+          VERSION="${GITHUB_REF_NAME}"
+          for file in artifacts/*; do
+            name=$(basename "$file")
+            # Versioned copy: immutable. latest/: short cache, overwritten by every release.
+            aws s3 cp "$file" "s3://${BUCKET}/downloads/desktop/${VERSION}/${name}" \
+              --cache-control "public, max-age=31536000, immutable" --no-progress
+            aws s3 cp "$file" "s3://${BUCKET}/downloads/desktop/latest/${name}" \
+              --cache-control "public, max-age=300" --no-progress
+          done
+          printf '{"version":"%s","published_at":"%s","assets":[%s]}\n' "$VERSION" "$(date -u +%FT%TZ)" \
+            "$(ls artifacts | sed 's/.*/"&"/' | paste -sd, -)" > version.json
+          aws s3 cp version.json "s3://${BUCKET}/downloads/desktop/latest/version.json" \
+            --content-type application/json --cache-control "public, max-age=60" --no-progress
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION" \
+            --paths "/downloads/desktop/latest/*" --query Invalidation.Id --output text
+          echo "### Desktop downloads" >> "$GITHUB_STEP_SUMMARY"
+          for file in artifacts/*; do
+            echo "- https://media.ujto.jcampos.dev/downloads/desktop/latest/$(basename "$file")" >> "$GITHUB_STEP_SUMMARY"
+          done
 
   msstore:
     needs: build
