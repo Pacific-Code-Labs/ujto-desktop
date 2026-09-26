@@ -8,6 +8,13 @@
 - Keep the origin check in `Bridge._ensure_trusted` and temp cleanup in `finally`.
 - Asset names in `.github/workflows/release.yml`/`scripts/build.sh` are referenced by the landing and
   dashboard content (`download.json`, `desktop.json`): never rename them.
+- Release = push a tag `vX.Y.Z` (match `ujto_desktop.__version__`). The workflow builds the 4
+  platforms, creates the GitHub release, and the `downloads` job publishes the installers to the
+  media CDN: `https://media.ujto.jcampos.dev/downloads/desktop/{vX.Y.Z,latest}/<asset>` (+
+  `latest/version.json`). The sites link to `latest/`. Its OIDC role (secret
+  `AWS_DOWNLOADS_ROLE_ARN`, from ujto-public-be `deploy-desktop-downloads-role.sh`) works only for
+  tags and may only write `downloads/desktop/*`. Builds are unsigned until signing is configured
+  (Gatekeeper / SmartScreen warnings).
 - Verify: `.venv/bin/python -m pytest -q tests`; `bash scripts/build.sh` on macOS for a local .app.
 - Two editions (`UJTO_EDITION`, `config.EDITION`): `full` (downloads + update check) and `store`
   (Microsoft Store: no yt-dlp/ffmpeg/Deno in the bundle; `capabilities().download` is false). Any new
